@@ -7,15 +7,17 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <bits/stdc++.h>
 
 using namespace std;
 
-typedef struct {
-    std::pair<string, int> file;
+
+    typedef struct {
+    vector<pair<string, int>> inputFiles;
+    vector<pair<string, int>> *allWords;
+    map<string, set<int>> *result; // Changed to map<string, set<int>>
     pthread_barrier_t* barrier;
     pthread_mutex_t* mutex;
-    vector<map<string, int>> *allWords;
-    map<string, vector<int>> *result;
     int id;
     int M, R;
 } thread_data_t;
@@ -31,97 +33,104 @@ vector<string> split_sentence(string sen) {
     return words;
 }
 
-bool cmp(pair<string, vector<int>>& a, pair<string, vector<int>>& b) { 
+bool cmp(pair<string, set<int>>& a, pair<string, set<int>>& b) { 
     if (a.second.size() != b.second.size()) {
         return a.second.size() > b.second.size();
     } 
     return a.first < b.first;
 }
+std::string remove_extra_spaces(const std::string& input) {
+    std::istringstream iss(input);
+    std::ostringstream oss;
+    std::string word;
+
+    // Read words from input and reconstruct the string with single spaces
+    while (iss >> word) {
+        if (!oss.str().empty()) {
+            oss << " ";
+        }
+        oss << word;
+    }
+
+    return oss.str();
+}
+
 void *Mapper(void *arg) {
     thread_data_t* data = (thread_data_t*)arg;
-    const auto& [filename, id] = data->file;
-    // printf("Thread processing file: %s with ID: %d, threadID:%d\n", filename.c_str(), id, data->id);
+
     if (data->id < data->M) {
-        ifstream file(filename);
-        if (!file.is_open()) {
-            cerr << "Error opening file: " << filename << endl;
-            pthread_exit(NULL);
+        for (size_t i = data->id; i < data->inputFiles.size(); i += data->M) {
+            const auto& [filename, id] = data->inputFiles[i];
+            ifstream file(filename);
+            if (!file.is_open()) {
+                cerr << "Error opening file: " << filename << endl;
+                pthread_exit(NULL);
+            }
+
+            stringstream buffer;
+            buffer << file.rdbuf();
+            string file_content = buffer.str();
+            transform(file_content.begin(), file_content.end(), file_content.begin(), [](unsigned char c) { return tolower(c); });file_content.erase(
+                std::remove_if(file_content.begin(), file_content.end(), 
+                            [](unsigned char c) { return !std::isalpha(c) && c != ' ' && c != '\n'; }),
+                file_content.end()
+            );
+            vector<string> words = split_sentence(file_content);
+            pthread_mutex_lock(data->mutex);
+            for (const auto& word : words) {
+                data->allWords->emplace_back(make_pair(word, id));
+            }
+            pthread_mutex_unlock(data->mutex);
+            file.close();
         }
-
-        stringstream buffer;
-        buffer << file.rdbuf();
-        string file_content = buffer.str();
-        transform(file_content.begin(), file_content.end(), file_content.begin(), [](unsigned char c) { return tolower(c); });
-        file_content.erase(remove(file_content.begin(), file_content.end(), '\''), file_content.end());
-        file_content.erase(remove(file_content.begin(), file_content.end(), ','), file_content.end());
-        file_content.erase(remove(file_content.begin(), file_content.end(), '.'), file_content.end());
-
-        vector<string> words = split_sentence(file_content);
-        map<string, int> mapping;
-        for (const auto& word : words) {
-            mapping.insert(make_pair(word, id));
-        }
-
-        // Protecting shared data (allWords) with mutex or managing each thread's output separately
-        pthread_mutex_lock(data->mutex);
-        data->allWords->push_back(mapping);
-        pthread_mutex_unlock(data->mutex);
-        file.close();
     }
 
     int r = pthread_barrier_wait(data->barrier);
 
     if (data->id >= data->M) {
-        int wordsCount = data->allWords->size() / data->R;
-        int start = (data->id - data->M) * wordsCount;
-        int end = start + wordsCount;
-        if (end > data->allWords->size()) {
-            end = data->allWords->size();
-        }
+        int start = (data->id - data->M);
         pthread_mutex_lock(data->mutex);
-        for (size_t i = start; i < end; i++) {
-            auto& words = (*data->allWords)[i];
-
-            for (auto& [word, id] : words) {
-                (*data->result)[word].push_back(id);
-                stable_sort((*data->result)[word].begin(), (*data->result)[word].end());
-            }
+        for (size_t i = start; i < data->allWords->size(); i += data->R) {
+            const auto& [word, id] = (*data->allWords)[i];
+            (*data->result)[word].insert(id);
         }
         pthread_mutex_unlock(data->mutex);
-
     }
-    
+
     r = pthread_barrier_wait(data->barrier);
 
     if (data->id >= data->M) {
         char start = 'a' + (data->id - data->M);
-        for (char ch = start; ch <= 'z'; ch += data->M) {
-            string out_name;
-            out_name[0] = ch;
-            ofstream out (out_name);
+        for (int ch = start; ch <= 'z'; ch += data->R) {
+            char current_char = static_cast<char>(ch);
+            string out_name(1, current_char);
+            ofstream out(out_name + ".txt");
 
-            vector<pair<string, vector<int>>> words;
+            vector<pair<string, set<int>>> words;
             for (auto& [word, ids] : *data->result) {
                 if (word[0] == ch) {
                     words.emplace_back(word, ids);
                 }
             }
+
             sort(words.begin(), words.end(), cmp);
             for (auto& [word, ids] : words) {
                 out << word << ":[";
-                size_t i = 0;
-                for (; i < ids.size() - 1; ++i) {
-                    out << ids[i] << " ";
+
+                auto it = ids.begin();
+                for (; it != prev(ids.end()); ++it) {
+                    out << *it << " ";
                 }
-                out << ids[i] << "]" << endl;
+                out << *it << "]" << endl;
             }
 
             out.close();
         }
-
     }
+
     pthread_exit(NULL);
 }
+
 
 int main(int argc, char **argv)
 {
@@ -129,7 +138,7 @@ int main(int argc, char **argv)
     int R = stoi(argv[2]);
     const string entry_file = argv[3];
 
-    map<string, int> inputFiles;
+    vector<pair<string, int>> inputFiles;
 
     ifstream entry_data(entry_file);
     int numberOfFiles;
@@ -141,20 +150,20 @@ int main(int argc, char **argv)
 
         for (size_t id = 1; id <= numberOfFiles; ++id) {
             if (getline(entry_data, line)) {
-                inputFiles.insert(make_pair(line, id));
+                inputFiles.emplace_back(make_pair(line, id));
             }
         }
         entry_data.close();
     }
 
 
-    pthread_t threads[M];
+    pthread_t threads[M + R];
     int r;
 
     // Initialize allWords as an empty vector of maps
-    vector<map<string, int>> allWords;
+    vector<pair<string, int>> allWords;
     
-    map<string, vector<int>> result;
+    map<string, set<int>> result;
 
     // Initialize barrier
     pthread_barrier_t barrier;
@@ -167,13 +176,7 @@ int main(int argc, char **argv)
     auto it = inputFiles.begin();
 
     for (size_t i = 0; i < M + R; ++i) {
-        if (i < M) {
-            if (it == inputFiles.end()) {
-                M = i;
-            } else {
-                thread_data_array[i].file = *it++;
-            }
-        }
+        thread_data_array[i].inputFiles = inputFiles;
         thread_data_array[i].barrier = &barrier;
         thread_data_array[i].mutex = &mutex;
         thread_data_array[i].id = i;
@@ -198,13 +201,7 @@ int main(int argc, char **argv)
             exit(-1);
         }
     }
-    // for (auto& [word, id] : result) {
-    //     cout << word << " ";
-    //     for(auto i : id) {
-    //         cout << i << " ";
-    //     }
-    //     cout << endl;
-    // }
+    r = pthread_mutex_destroy(&mutex);
     r = pthread_barrier_destroy(&barrier);
     return 0;
 }
