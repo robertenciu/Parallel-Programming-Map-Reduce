@@ -14,7 +14,7 @@ using namespace std;
 
     typedef struct {
     vector<pair<string, int>> inputFiles;
-    vector<pair<string, int>> *allWords;
+    vector<map<string, int>> *allWords;
     map<string, set<int>> *result; // Changed to map<string, set<int>>
     pthread_barrier_t* barrier;
     pthread_mutex_t* mutex;
@@ -23,38 +23,20 @@ using namespace std;
 } thread_data_t;
 
 // From Geeks for geeks
-vector<string> split_sentence(string sen) {
+void split_sentence(string sen, map<string, int> *list, int id) {
     stringstream ss(sen);
     string word;
-    vector<string> words;
     while (ss >> word) {
-        words.push_back(word);
+        (*list)[word] = id;
     }
-    return words;
 }
 
 bool cmp(pair<string, set<int>>& a, pair<string, set<int>>& b) { 
     if (a.second.size() != b.second.size()) {
         return a.second.size() > b.second.size();
-    } 
+    }
     return a.first < b.first;
 }
-std::string remove_extra_spaces(const std::string& input) {
-    std::istringstream iss(input);
-    std::ostringstream oss;
-    std::string word;
-
-    // Read words from input and reconstruct the string with single spaces
-    while (iss >> word) {
-        if (!oss.str().empty()) {
-            oss << " ";
-        }
-        oss << word;
-    }
-
-    return oss.str();
-}
-
 void *Mapper(void *arg) {
     thread_data_t* data = (thread_data_t*)arg;
 
@@ -70,16 +52,16 @@ void *Mapper(void *arg) {
             stringstream buffer;
             buffer << file.rdbuf();
             string file_content = buffer.str();
-            transform(file_content.begin(), file_content.end(), file_content.begin(), [](unsigned char c) { return tolower(c); });file_content.erase(
+            transform(file_content.begin(), file_content.end(), file_content.begin(), [](unsigned char c) { return tolower(c); });
+            file_content.erase(
                 std::remove_if(file_content.begin(), file_content.end(), 
                             [](unsigned char c) { return !std::isalpha(c) && c != ' ' && c != '\n'; }),
                 file_content.end()
             );
-            vector<string> words = split_sentence(file_content);
+            map<string, int> list;
+            split_sentence(file_content, &list, id);
             pthread_mutex_lock(data->mutex);
-            for (const auto& word : words) {
-                data->allWords->emplace_back(make_pair(word, id));
-            }
+            data->allWords->push_back(list);
             pthread_mutex_unlock(data->mutex);
             file.close();
         }
@@ -91,8 +73,10 @@ void *Mapper(void *arg) {
         int start = (data->id - data->M);
         pthread_mutex_lock(data->mutex);
         for (size_t i = start; i < data->allWords->size(); i += data->R) {
-            const auto& [word, id] = (*data->allWords)[i];
-            (*data->result)[word].insert(id);
+            const auto& list = (*data->allWords)[i];
+            for ( auto [word, id] : list) {
+                (*data->result)[word].insert(id);
+            }
         }
         pthread_mutex_unlock(data->mutex);
     }
@@ -161,7 +145,7 @@ int main(int argc, char **argv)
     int r;
 
     // Initialize allWords as an empty vector of maps
-    vector<pair<string, int>> allWords;
+    vector<map<string, int>> allWords;
     
     map<string, set<int>> result;
 

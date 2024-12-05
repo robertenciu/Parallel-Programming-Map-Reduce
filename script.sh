@@ -3,7 +3,7 @@
 # Initialize variables
 script="./run_with_docker.sh" # Replace with your script's path
 count_not_84=0 # Counter for non-84/84 results
-iterations=10 # Number of times to run the script
+iterations=50 # Number of times to run the script
 
 rm fisier
 # Loop to run the script 10 times
