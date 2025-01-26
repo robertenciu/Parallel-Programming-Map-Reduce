@@ -1,0 +1,37 @@
+# Calcul Paralel al Indexului Inversat cu Paradigma Map-Reduce
+
+## Descriere
+Acest proiect implementeaza calculul paralel al unui **index inversat** utilizand paradigma **Map-Reduce**. Proiectul foloseste biblioteci standard C++ si programare multithreading cu `pthread` pentru a distribui sarcina de procesare a fisierelor text pe mai multe fire de executie.
+
+## Structura
+### Fisiere:
+- Fisierele de intrare sunt specificate intr-un fisier principal care contine numele fisierelor text ce vor fi procesate.
+- Fiecare fisier este procesat de firele **Mapper**, care impart textul in cuvinte si le asociaza unui ID unic.
+- Firele **Reducer** agrega rezultatele, creeaza un index inversat si salveaza datele procesate in fisiere de iesire grupate alfabetic.
+
+### Algoritmi principali:
+1. **Mapper**:
+   - Proceseaza fisierele text, elimina caracterele speciale si separa textul in cuvinte.
+   - Stocheaza fiecare cuvant impreuna cu un ID unic al fisierului in care a aparut.
+
+2. **Reducer**:
+   - Agrega toate cuvintele si creeaza un index inversat.
+   - Sorteaza cuvintele alfabetic si dupa frecventa fisierelor in care apar.
+   - Scrie rezultatele in fisiere separate pentru fiecare litera a alfabetului.
+
+## Utilizarea barierei si a mutex-ului
+
+### **Bariera**
+Bariera este utilizata pentru a sincroniza firele Mapper si Reducer in diferite etape ale executiei:
+
+1. **Etapa Mapper**:
+   - Toate firele Mapper proceseaza fisierele si construiesc listele de cuvinte.
+   - Dupa finalizarea procesarii, fiecare fir Mapper ajunge la bariera si asteapta celelalte fire sa termine.
+
+2. **Etapa Reducer**:
+   - Dupa ce toate firele Mapper si-au finalizat sarcina, acestea trec de bariera, iar firele Reducer incep sa proceseze rezultatele.
+
+Astfel, bariera garanteaza ca toate firele Mapper finalizeaza inainte ca Reducer-ele sa inceapa agregarea datelor.
+
+Mutex-ul garanteaza consistenta datelor in structuri partajate de mai multe thread-uri, astfel eliminand 'race-condition'urile.
+
